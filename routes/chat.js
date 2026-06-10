@@ -47,7 +47,8 @@ For general queries:
 For data queries:
 {
   "type": "query",
-  "sql": "SELECT [column_name] AS [key], SUM([target_col]) AS [value] FROM ? GROUP BY [column_name] ORDER BY [value] DESC LIMIT 10"
+  "sql": "SELECT [column_name] AS [key], SUM([target_col]) AS [value] FROM ? GROUP BY [column_name] ORDER BY [value] DESC LIMIT 10",
+  "summary": "A short, professional summary of what the user asked and what data is being retrieved to answer it (strictly 3 to 6 lines max)."
 }
 `;
 
@@ -68,7 +69,8 @@ For general queries:
 For data queries:
 {
   "type": "query",
-  "sql": "your_sql_query"
+  "sql": "your_sql_query",
+  "summary": "A short, professional summary of what the user asked and what data is being retrieved to answer it (strictly 3 to 6 lines max)."
 }
 
 Never return code blocks (like \`\`\`json), explanations, or markdown. Only return the raw JSON object.
@@ -153,7 +155,7 @@ SQL Query Rules:
       });
     }
 
-    const summary = "Here is the data for your query:";
+    const summary = plan.summary || "Here is the data for your query:";
 
     return res.json({
       plan,
