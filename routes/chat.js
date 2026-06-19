@@ -215,4 +215,112 @@ SQL Query Rules:
   }
 });
 
+router.post("/suggestions", async (req, res) => {
+  try {
+    const { columns, fileUrl } = req.body;
+    if (!columns || !Array.isArray(columns) || columns.length === 0) {
+      return res.status(400).json({ error: "Columns array is required and must not be empty." });
+    }
+
+    let data = dataStore.getData();
+
+    // Self-healing: if memory was wiped but we have a fileUrl
+    if ((!data || data.length === 0) && fileUrl) {
+      console.log(`[Suggestions] Memory is empty but fileUrl is provided. Re-fetching and parsing Excel from: ${fileUrl}...`);
+      try {
+        const fileBuffer = await fetchFileBuffer(fileUrl);
+        const XLSX = require("xlsx");
+        const workbook = XLSX.read(fileBuffer, { type: "buffer" });
+        const sheetNames = workbook.SheetNames;
+        const firstSheet = workbook.Sheets[sheetNames[0]];
+        data = XLSX.utils.sheet_to_json(firstSheet);
+        dataStore.setData(data);
+        console.log(`[Suggestions] Successfully restored memory from ImageKit. Row count: ${data.length}`);
+      } catch (restoreErr) {
+        console.error("[Suggestions] Self-healing restoration failed:", restoreErr);
+      }
+    }
+
+    const dataSample = (data && data.length > 0) ? data.slice(0, 5) : [];
+
+    const prompt = `
+You are a retail database query assistant.
+Given the following column names from a loaded database table:
+${columns.map(c => `- ${c}`).join("\n")}
+
+${dataSample.length > 0 ? `Here is a sample of the first 5 rows from the loaded database table to give you context on the data types and actual values:
+${JSON.stringify(dataSample, null, 2)}` : ""}
+
+Generate exactly 10 simple, direct, and straightforward analytical questions that a user can ask to analyze this dataset.
+Guidelines:
+1. Every question must be simple and easy to answer with a single standard SQL query (aggregations, filters, groupings, limits).
+2. The questions should return exactly one simple table, metric, or list of values (e.g. "What is the total gross sales by region?", "List top 5 categories by sales").
+3. Do NOT suggest complex queries, trend analysis over multiple time frames, cohort analyses, or queries requiring multiple complex calculations.
+4. Keep the questions clean, easy to understand, and business-focused.
+5. Ensure every question can be answered using only the provided columns.
+6. Use the actual sample row context (like specific names of regions, stores, categories) to make the questions realistic and specific.
+
+Return ONLY a JSON array of strings containing exactly 10 questions.
+Do NOT return markdown formatting, code blocks, or extra text. Return a raw JSON array, e.g.:
+[
+  "Question 1?",
+  "Question 2?"
+]
+`;
+
+    const completion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "system",
+          content: "You are a helpful retail database assistant. You always respond ONLY with a raw JSON array of strings containing simple, direct, single-table analytical questions based on the columns and sample data provided. Never output any markdown code blocks, HTML, or other text.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      model: "openai/gpt-oss-120b",
+    });
+
+    const generatedCode = completion.choices[0].message.content;
+    const match = generatedCode.match(/\[\s*[\s\S]*?\s*\]/);
+    let suggestions;
+
+    if (match) {
+      suggestions = JSON.parse(match[0]);
+    } else {
+      const cleanCode = generatedCode
+        .replace(/```javascript/g, "")
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
+      const jsonText = cleanCode.replace("json", "").trim();
+      suggestions = JSON.parse(jsonText);
+    }
+
+    if (!Array.isArray(suggestions) || suggestions.length === 0) {
+      throw new Error("Invalid suggestions response from AI");
+    }
+
+    return res.json({ suggestions });
+  } catch (err) {
+    console.error("Suggestions Route Error:", err);
+    // Return standard fallback suggestions if AI generation fails
+    return res.json({
+      suggestions: [
+        "Which store manager has the highest average manual discount amount?",
+        "What is the total gross sales by region?",
+        "What percentage of transactions had a manual discount?",
+        "List the top 5 product categories by gross sales.",
+        "Which manual discount reasons are used most frequently?",
+        "Average manual discount % for each store in West region",
+        "Which stores have the highest manual discounts?",
+        "Which regions have the highest manual discounts?",
+        "Which store manager gave the lowest manual discount %?",
+        "Which items are best selling?"
+      ]
+    });
+  }
+});
+
 module.exports = router;
