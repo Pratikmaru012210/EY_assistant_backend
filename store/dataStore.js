@@ -1,5 +1,4 @@
 let excelData = [];
-let fileId = null;
 
 module.exports = {
   setData: (data) => {
@@ -10,16 +9,7 @@ module.exports = {
     return excelData;
   },
 
-  setFileId: (id) => {
-    fileId = id;
-  },
-
-  getFileId: () => {
-    return fileId;
-  },
-
   clear: () => {
     excelData = [];
-    fileId = null;
   }
-};
+};

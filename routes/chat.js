@@ -8,55 +8,20 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
 
-// Helper to download files from ImageKit (supports both global fetch and legacy node https fallback)
-const fetchFileBuffer = async (url) => {
-  if (typeof fetch === 'function') {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
-  } else {
-    return new Promise((resolve, reject) => {
-      const https = require('https');
-      https.get(url, (res) => {
-        if (res.statusCode !== 200) {
-          reject(new Error(`Failed to download file: ${res.statusCode}`));
-          return;
-        }
-        const chunks = [];
-        res.on('data', (chunk) => chunks.push(chunk));
-        res.on('end', () => resolve(Buffer.concat(chunks)));
-        res.on('error', (err) => reject(err));
-      }).on('error', (err) => reject(err));
-    });
-  }
-};
-
 router.post("/", async (req, res) => {
   try {
-    const { question, fileUrl } = req.body;
+    const { question } = req.body;
     let data = dataStore.getData();
 
-    // Self-healing: if memory was wiped (e.g., server restart/serverless scale down) but we have a fileUrl
-    if ((!data || data.length === 0) && fileUrl) {
-      console.log(`Memory is empty but fileUrl is provided. Re-fetching and parsing Excel from: ${fileUrl}...`);
-      try {
-        const fileBuffer = await fetchFileBuffer(fileUrl);
-        const XLSX = require("xlsx");
-        const workbook = XLSX.read(fileBuffer, { type: "buffer" });
-        const sheetNames = workbook.SheetNames;
-        const firstSheet = workbook.Sheets[sheetNames[0]];
-        data = XLSX.utils.sheet_to_json(firstSheet);
-        dataStore.setData(data);
-        console.log(`Successfully restored memory from ImageKit. Row count: ${data.length}`);
-      } catch (restoreErr) {
-        console.error("Self-healing restoration failed:", restoreErr);
-      }
+    if (!data || data.length === 0) {
+      return res.status(400).json({
+        success: false,
+        needsRehydrate: true,
+        error: "No dataset loaded in server memory. Please reload or re-upload your file."
+      });
     }
 
-    const columns = (data && data.length > 0) ? Object.keys(data[0]) : [];
+    const columns = Object.keys(data[0]);
 
     // Quick local check for common greetings to respond instantly and save API resources
     const cleanedQuestion = (question || "").trim().toLowerCase().replace(/[^\w\s]/g, "");
@@ -217,29 +182,12 @@ SQL Query Rules:
 
 router.post("/suggestions", async (req, res) => {
   try {
-    const { columns, fileUrl } = req.body;
+    const { columns } = req.body;
     if (!columns || !Array.isArray(columns) || columns.length === 0) {
       return res.status(400).json({ error: "Columns array is required and must not be empty." });
     }
 
     let data = dataStore.getData();
-
-    // Self-healing: if memory was wiped but we have a fileUrl
-    if ((!data || data.length === 0) && fileUrl) {
-      console.log(`[Suggestions] Memory is empty but fileUrl is provided. Re-fetching and parsing Excel from: ${fileUrl}...`);
-      try {
-        const fileBuffer = await fetchFileBuffer(fileUrl);
-        const XLSX = require("xlsx");
-        const workbook = XLSX.read(fileBuffer, { type: "buffer" });
-        const sheetNames = workbook.SheetNames;
-        const firstSheet = workbook.Sheets[sheetNames[0]];
-        data = XLSX.utils.sheet_to_json(firstSheet);
-        dataStore.setData(data);
-        console.log(`[Suggestions] Successfully restored memory from ImageKit. Row count: ${data.length}`);
-      } catch (restoreErr) {
-        console.error("[Suggestions] Self-healing restoration failed:", restoreErr);
-      }
-    }
 
     const dataSample = (data && data.length > 0) ? data.slice(0, 5) : [];
 
