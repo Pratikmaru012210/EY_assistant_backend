@@ -1,15 +1,16 @@
-import os
 import json
+import os
 import re
-from typing import List, Optional
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from groq import Groq
+from typing import List
 
-from store.data_store import data_store
 from analytics.execute_plan import execute_plan
+from fastapi import APIRouter, HTTPException
+from groq import Groq
+from pydantic import BaseModel
+from store.data_store import data_store
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
+
 
 def get_groq_client():
     api_key = os.getenv("GROQ_API_KEY")
@@ -17,11 +18,14 @@ def get_groq_client():
         print("Warning: GROQ_API_KEY is not set.")
     return Groq(api_key=api_key)
 
+
 class ChatRequest(BaseModel):
     question: str
 
+
 class SuggestionsRequest(BaseModel):
     columns: List[str]
+
 
 def is_result_empty(res_list) -> bool:
     if not res_list or not isinstance(res_list, list) or len(res_list) == 0:
@@ -37,10 +41,13 @@ def is_result_empty(res_list) -> bool:
                 continue
             if isinstance(val, (int, float)) and val == 0:
                 continue
-            if isinstance(val, str) and (val.strip() == "0" or val.lower() == "n/a" or val.strip() == ""):
+            if isinstance(val, str) and (
+                val.strip() == "0" or val.lower() == "n/a" or val.strip() == ""
+            ):
                 continue
             return False
     return True
+
 
 @router.post("")
 @router.post("/")
@@ -53,19 +60,28 @@ async def chat(payload: ChatRequest):
             return {
                 "success": False,
                 "needsRehydrate": True,
-                "error": "No dataset loaded in server memory. Please reload or re-upload your file."
+                "error": "No dataset loaded in server memory. Please reload or re-upload your file.",
             }
 
         columns = list(data[0].keys())
 
         # Quick check for greetings
-        cleaned_question = re.sub(r'[^\w\s]', '', (question or "").strip().lower())
-        quick_greetings = ["hi", "hello", "hey", "greetings", "good morning", "good afternoon", "good evening", "yo"]
+        cleaned_question = re.sub(r"[^\w\s]", "", (question or "").strip().lower())
+        quick_greetings = [
+            "hi",
+            "hello",
+            "hey",
+            "greetings",
+            "good morning",
+            "good afternoon",
+            "good evening",
+            "yo",
+        ]
         if cleaned_question in quick_greetings or cleaned_question == "":
             return {
                 "plan": {"type": "general"},
                 "result": None,
-                "summary": "Hello! I am your retail analytics assistant. How can I help you analyze your retail data today? Please ask a query related to sales, transactions, discounts, regions, or store managers."
+                "summary": "Hello! I am your retail analytics assistant. How can I help you analyze your retail data today? Please ask a query related to sales, transactions, discounts, regions, or store managers.",
             }
 
         prompt = f"""
@@ -125,20 +141,16 @@ SQL Query Rules:
 3. When summarizing, grouping, or aggregating data for charts and lists, alias the group column as [key] and the aggregated value as [value] (e.g., SELECT [Store Name] AS [key], SUM([Gross Sales]) AS [value] FROM ? GROUP BY [Store Name]).
 4. For ranking/top/most questions (e.g., "highest", "top", "most"), use ORDER BY [value] DESC and LIMIT 10 (or the number requested by the user).
 5. For percentage questions, return the percentage value directly.
-"""
+""",
                 },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
+                {"role": "user", "content": prompt},
             ],
-            model="openai/gpt-oss-120b"
+            model="openai/gpt-oss-120b",
         )
 
         generated_code = completion.choices[0].message.content or ""
         clean_code = (
-            generated_code
-            .replace("```javascript", "")
+            generated_code.replace("```javascript", "")
             .replace("```json", "")
             .replace("```", "")
             .strip()
@@ -161,7 +173,8 @@ SQL Query Rules:
             return {
                 "plan": plan,
                 "result": None,
-                "summary": plan.get("message") or "Hello! I am your retail analytics assistant. How can I help you analyze your retail data today? Please ask a query related to sales, transactions, discounts, or regions."
+                "summary": plan.get("message")
+                or "Hello! I am your retail analytics assistant. How can I help you analyze your retail data today? Please ask a query related to sales, transactions, discounts, or regions.",
             }
 
         print("PLAN:", plan)
@@ -171,26 +184,26 @@ SQL Query Rules:
             return {
                 "plan": plan,
                 "result": None,
-                "summary": "No data found matching your query. Please check if the filter values are correct (e.g. spelling of regions, categories, or names) or try asking a different question."
+                "summary": "No data found matching your query. Please check if the filter values are correct (e.g. spelling of regions, categories, or names) or try asking a different question.",
             }
 
         summary = plan.get("summary") or "Here is the data for your query:"
-        return {
-            "plan": plan,
-            "result": result,
-            "summary": summary
-        }
+        return {"plan": plan, "result": result, "summary": summary}
 
     except Exception as err:
         print("Chat Route Error:", err)
         raise HTTPException(status_code=500, detail=str(err))
+
 
 @router.post("/suggestions")
 async def suggestions(payload: SuggestionsRequest):
     try:
         columns = payload.columns
         if not columns or len(columns) == 0:
-            raise HTTPException(status_code=400, detail="Columns array is required and must not be empty.")
+            raise HTTPException(
+                status_code=400,
+                detail="Columns array is required and must not be empty.",
+            )
 
         data = data_store.get_data()
         data_sample = data[:5] if data and len(data) > 0 else []
@@ -223,25 +236,21 @@ Do NOT return markdown formatting, code blocks, or extra text. Return a raw JSON
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful retail database assistant. You always respond ONLY with a raw JSON array of strings containing simple, direct, single-table analytical questions based on the columns and sample data provided. Never output any markdown code blocks, HTML, or other text."
+                    "content": "You are a helpful retail database assistant. You always respond ONLY with a raw JSON array of strings containing simple, direct, single-table analytical questions based on the columns and sample data provided. Never output any markdown code blocks, HTML, or other text.",
                 },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
+                {"role": "user", "content": prompt},
             ],
-            model="openai/gpt-oss-120b"
+            model="openai/gpt-oss-120b",
         )
 
         generated_code = completion.choices[0].message.content or ""
-        match = re.search(r'\[\s*[\s\S]*?\s*\]', generated_code)
+        match = re.search(r"\[\s*[\s\S]*?\s*\]", generated_code)
 
         if match:
             sugg_list = json.loads(match.group(0))
         else:
             clean_code = (
-                generated_code
-                .replace("```javascript", "")
+                generated_code.replace("```javascript", "")
                 .replace("```json", "")
                 .replace("```", "")
                 .strip()
@@ -269,6 +278,6 @@ Do NOT return markdown formatting, code blocks, or extra text. Return a raw JSON
                 "Which stores have the highest manual discounts?",
                 "Which regions have the highest manual discounts?",
                 "Which store manager gave the lowest manual discount %?",
-                "Which items are best selling?"
+                "Which items are best selling?",
             ]
         }

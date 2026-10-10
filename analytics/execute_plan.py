@@ -1,9 +1,13 @@
-from typing import List, Dict, Any
 import re
+from typing import Any, Dict, List
+
 import duckdb
 import pandas as pd
 
-def execute_plan(data: List[Dict[str, Any]], plan: Dict[str, Any]) -> List[Dict[str, Any]]:
+
+def execute_plan(
+    data: List[Dict[str, Any]], plan: Dict[str, Any]
+) -> List[Dict[str, Any]]:
     """
     Executes the generated SQL plan on the in-memory dataset using DuckDB.
     Supports SQL syntax matching Alasql / SQLite, including 'FROM ?' or 'FROM data'.
@@ -17,10 +21,10 @@ def execute_plan(data: List[Dict[str, Any]], plan: Dict[str, Any]) -> List[Dict[
         df = pd.DataFrame(data)
 
         # 1. Replace square brackets [column name] with double quotes "column name" (standard SQL)
-        clean_sql = re.sub(r'\[([^\]]+)\]', r'"\1"', sql)
+        clean_sql = re.sub(r"\[([^\]]+)\]", r'"\1"', sql)
 
         # 2. Replace 'FROM ?' with 'FROM df'
-        clean_sql = re.sub(r'\bFROM\s+\?', 'FROM df', clean_sql, flags=re.IGNORECASE)
+        clean_sql = re.sub(r"\bFROM\s+\?", "FROM df", clean_sql, flags=re.IGNORECASE)
 
         # Query DuckDB directly against the in-memory pandas DataFrame
         result_df = duckdb.query(clean_sql).df()
@@ -30,15 +34,18 @@ def execute_plan(data: List[Dict[str, Any]], plan: Dict[str, Any]) -> List[Dict[
         records = result_df.to_dict(orient="records")
         import math
         from datetime import datetime, date
+
         cleaned_records = []
         for r in records:
             clean_r = {}
             for k, v in r.items():
                 if isinstance(v, (datetime, date)):
                     clean_r[str(k)] = v.isoformat()
-                elif isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
-                    clean_r[str(k)] = None
-                elif pd.isna(v):
+                elif (
+                    isinstance(v, float)
+                    and (math.isnan(v) or math.isinf(v))
+                    or pd.isna(v)
+                ):
                     clean_r[str(k)] = None
                 else:
                     clean_r[str(k)] = v
